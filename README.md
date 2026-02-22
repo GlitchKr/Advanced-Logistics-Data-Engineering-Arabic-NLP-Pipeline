@@ -7,6 +7,8 @@
 [![Power BI](https://img.shields.io/badge/Power_BI-F2C811?style=flat&logo=powerbi&logoColor=black)](https://powerbi.microsoft.com/)
 [![Google Drive](https://img.shields.io/badge/Google_Drive-4285F4?style=flat&logo=googledrive&logoColor=white)](https://drive.google.com/)
 
+![alt text](Gemini_Generated_Image_aq74shaq74shaq74.png)
+
 This project demonstrates a production-grade **End-to-End Data Engineering Pipeline** designed to tackle a complex challenge: extracting messy, user-generated Arabic/English textual data from unstable APIs, applying advanced Natural Language Processing (NLP) to clean and categorize it, and feeding the structured data into a live **Power BI Dashboard** via automated server deployment.
 
 ## 🏗️ The End-to-End Workflow

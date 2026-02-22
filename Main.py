@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-New_code_v3.py  —  Limousine Pipeline v6.0
-==========================================
+New_code_v3.py  —  Data Pipeline v6.0 (Template)
+================================================
 Changelog from v2:
   - AdvancedLocationCleanerV6 (cleaner_v6.py) replaces inline V5 class
   - External locations.json loaded once (cached)
@@ -23,10 +23,8 @@ import re
 import pickle
 import json
 from pathlib import Path
-from collections import Counter
 from itertools import combinations
-from typing import Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 import logging
 from logging.handlers import RotatingFileHandler
@@ -36,23 +34,27 @@ try:
 except ImportError:
     pass  # install with: pip install python-dotenv
 
-# ================= Configuration =================
-HISTORICAL_ARCHIVE_PATH = r'D:\Work Projects\code\Projects\1\historical_archive_2024_2025.csv'
-FINAL_OUTPUT_PATH = r'D:\Work Projects\code\Projects\1\limousine_data.csv'
-ARCHIVE_LOCK_FILE = r'D:\Work Projects\code\Projects\1\.archive_created'
+# ================= Configuration (Dynamic Paths) =================
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-LOCATION_PAIRS_PATH = r'D:\Work Projects\code\Projects\1\location_pairs_analysis.csv'
-LOCATION_STATS_PATH = r'D:\Work Projects\code\Projects\1\location_statistics.csv'
-MULTI_LOCATION_DETAILS_PATH = r'D:\Work Projects\code\Projects\1\multi_location_details.csv'
+HISTORICAL_ARCHIVE_PATH = DATA_DIR / 'historical_archive.csv'
+FINAL_OUTPUT_PATH = DATA_DIR / 'master_data.csv'
+ARCHIVE_LOCK_FILE = DATA_DIR / '.archive_created'
 
-CHECKPOINT_DIR          = r'D:\Work Projects\code\Projects\1\checkpoints'
-PROGRESS_FILE           = f'{CHECKPOINT_DIR}/progress.json'
-BATCH_CACHE_DIR         = f'{CHECKPOINT_DIR}/batches'
+LOCATION_PAIRS_PATH = DATA_DIR / 'location_pairs_analysis.csv'
+LOCATION_STATS_PATH = DATA_DIR / 'location_statistics.csv'
+MULTI_LOCATION_DETAILS_PATH = DATA_DIR / 'multi_location_details.csv'
+
+CHECKPOINT_DIR          = BASE_DIR / 'checkpoints'
+PROGRESS_FILE           = CHECKPOINT_DIR / 'progress.json'
+BATCH_CACHE_DIR         = CHECKPOINT_DIR / 'batches'
 
 # ================= Logging Setup =================
 def _setup_logger() -> logging.Logger:
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    log_path = os.path.join(CHECKPOINT_DIR, 'pipeline.log')
+    log_path = CHECKPOINT_DIR / 'pipeline.log'
     fmt = logging.Formatter(
         '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
@@ -63,7 +65,7 @@ def _setup_logger() -> logging.Logger:
     fh.setFormatter(fmt)
     ch = logging.StreamHandler()
     ch.setFormatter(fmt)
-    root = logging.getLogger('limousine')
+    root = logging.getLogger('pipeline')
     root.setLevel(logging.INFO)
     if not root.handlers:
         root.addHandler(fh)
@@ -72,19 +74,16 @@ def _setup_logger() -> logging.Logger:
 
 logger = _setup_logger()
 
-
-# API Settings
-# Load token from environment / .env file
-# Create .env in the same folder: API_TOKEN=eyJ...
+# ================= API Settings =================
 token = os.environ.get('API_TOKEN', '')
 if not token:
-    raise EnvironmentError(
-        'API_TOKEN not set. Add it to .env or set as environment variable.'
-    )
-base_url   = "https://portal-api.etolv.net/public/api/airline_delivery/pagination"
+    logger.warning('API_TOKEN not set. Make sure to add it to .env before running against a real API.')
+
+# Sanitized generic API URL for showcase purposes
+base_url   = "https://api.example-company.com/v1/trips/pagination"
 order      = "desc"
 sort_field = "serialId"
-limit      = 50
+limit      = 30
 
 headers = {
     "Authorization": f"bearer {token}",
@@ -92,31 +91,19 @@ headers = {
     "Content-Type":  "application/json",
 }
 
-
-
-
 # ================= Pipeline Configuration =================
 @dataclass
 class PipelineConfig:
-    """Centralised config - edit here, not in scattered constants."""
-    base_url:   str = 'https://portal-api.etolv.net/public/api/airline_delivery/pagination'
+    """Centralised config."""
+    base_url:   str = base_url
     order:      str = 'desc'
     sort_field: str = 'serialId'
-    limit:      int = 50
+    limit:      int = 30
     batch_size: int = 5
     sleep_hours: int = 6
     max_workers: int = 5
 
-    @property
-    def headers(self) -> dict:
-        return {
-            'Authorization': f'bearer {token}',
-            'Accept':        'application/json',
-            'Content-Type':  'application/json',
-        }
-
 CONFIG = PipelineConfig()
-
 
 # ================= Checkpoint Manager =================
 class CheckpointManager:
@@ -149,7 +136,7 @@ class CheckpointManager:
             json.dump(progress, f, indent=2)
 
     def save_batch(self, year, batch_num, data):
-        batch_file = f'{BATCH_CACHE_DIR}/{year}_batch_{batch_num}.pkl'
+        batch_file = Path(BATCH_CACHE_DIR) / f'{year}_batch_{batch_num}.pkl'
         with open(batch_file, 'wb') as f:
             pickle.dump(data, f)
 
@@ -223,21 +210,12 @@ def robust_api_call(func, *args, max_attempts=5, **kwargs):
 
 # =============================================================================
 #  Location Cleaner — V6
-#  Imported from cleaner_v6.py (external JSON + RapidFuzz + strict typing)
 # =============================================================================
 from cleaner_v6 import AdvancedLocationCleanerV6
-# Alias for backward compatibility with any code that references V5
-AdvancedLocationCleanerV5 = AdvancedLocationCleanerV6
-
-
-# =============================================================================
-#  LocationAnalytics  (لا تغييرات منطقية، فقط يستخدم الـ V5 cleaner)
-# =============================================================================
 
 class LocationAnalytics:
     def __init__(self, df: pd.DataFrame, cleaner: AdvancedLocationCleanerV6 = None):
         self.df      = df
-        # Accept a shared cleaner (V6) to avoid re-instantiating
         self.cleaner = cleaner if cleaner is not None else AdvancedLocationCleanerV6()
 
     def generate_multi_location_columns(self, max_locations: int = 5) -> pd.DataFrame:
@@ -260,11 +238,9 @@ class LocationAnalytics:
         avail    = [c for c in loc_cols if c in self.df.columns]
         multi    = self.df[self.df.get('num_locations', 0) >= 2] if 'num_locations' in self.df.columns else self.df
         if multi.empty:
-            print("    No multi-location trips found")
             return pd.DataFrame()
 
         all_pairs = []
-        # Only iterate multi-destination rows (much smaller subset)
         for _, row in multi[avail + ['#', 'date', 'sale_price']].iterrows():
             locations = [
                 row[c] for c in avail
@@ -278,7 +254,6 @@ class LocationAnalytics:
                         'Revenue': row.get('sale_price', 0),
                     })
         if not all_pairs:
-            print("    No multi-location trips found")
             return pd.DataFrame()
         pairs_df      = pd.DataFrame(all_pairs)
         pairs_summary = pairs_df.groupby(['Location_A', 'Location_B']).agg(
@@ -313,11 +288,9 @@ class LocationAnalytics:
         ).reset_index().sort_values('Total_Visits', ascending=False)
         stats['Avg_Revenue_Per_Visit'] = (stats['Total_Revenue'] / stats['Total_Visits']).round(2)
         stats['Visit_Percentage']      = (stats['Total_Visits'] / len(self.df) * 100).round(2)
-        print(f"    OK — {len(stats)} unique locations")
         return stats
 
     def create_multi_location_details(self) -> pd.DataFrame:
-        print(" -> Creating multi-location trip details...")
         multi_trips = self.df[self.df['num_locations'] >= 2].copy()
         if multi_trips.empty:
             return pd.DataFrame()
@@ -334,7 +307,6 @@ class LocationAnalytics:
                 'Trip_Route', 'Trip_Type', 'Location_1', 'Location_2',
                 'Location_3', 'Location_4', 'Location_5']
         available = [c for c in cols if c in multi_trips.columns]
-        print(f"    OK — {len(multi_trips)} multi-location trips")
         return multi_trips[available]
 
 
@@ -352,24 +324,10 @@ def create_session():
     session.mount("http://",  adapter)
     return session
 
-
-# Singleton cleaner — built once, shared everywhere (avoids double __init__)
-_location_cleaner_singleton = AdvancedLocationCleanerV5()
-
-
-# ─── Location lookup cache (avoids re-processing repeated strings) ──────────
-@lru_cache(maxsize=8192)
-def _cached_extract_main(text: str) -> str:
-    """Cached wrapper - identical strings are looked up only once."""
-    return _location_cleaner_singleton.extract_main_location(text)
-
-
-# Module-level shared session — reused across all threads (HTTP keep-alive)
+_location_cleaner_singleton = AdvancedLocationCleanerV6()
 _SHARED_SESSION = create_session()
 
-
 def fetch_page(page_num, date_from, date_to):
-    """سحب صفحة واحدة مع معالجة الأخطاء - النسخة الآمنة"""
     def _fetch():
         url = f"{base_url}/{order}/{sort_field}/{page_num}/{limit}"
         payload = {
@@ -381,35 +339,21 @@ def fetch_page(page_num, date_from, date_to):
         
         session = _SHARED_SESSION
         try:
-            # بنحاول نكلم السيرفر
             response = session.post(url, headers=headers, json=payload, timeout=60)
-            
-            # لو الرد 200 (تمام)
             if response.status_code == 200:
                 return response.json().get("data", [])
             elif response.status_code == 401:
-                logger.critical(
-                    "Token expired or invalid (401)! Update API_TOKEN in .env and restart."
-                )
+                logger.critical("Token expired or invalid (401)! Update API_TOKEN in .env.")
                 raise SystemExit("Token expired")
             else:
-                # لو أي كود تاني (500, 404, etc) ارفع Error
                 response.raise_for_status()
-                
         except Exception as e:
-            # ===> (هنا الجزء اللي أنت سألت عليه) <===
-            # بنطبع المشكلة ونرفعها عشان robust_api_call يعيد المحاولة
             logger.error("Page %d failed: %s", page_num, e)
             raise e
 
-    # حاول 3 مرات، لو فشلوا كلهم robust_api_call هيرجع None
     result = robust_api_call(_fetch, max_attempts=3)
-    
-    # اللحظة الحاسمة: لو رجع None معناها فشل تماماً بعد 3 محاولات
     if result is None:
-        # ارفع Exception عشان نوقف الباتش ده ومنحفظش Checkpoint غلط
         raise Exception(f"Failed to fetch page {page_num} after 3 attempts.")
-        
     return result
 
 
@@ -420,7 +364,6 @@ def apply_power_query_transformations(df: pd.DataFrame) -> pd.DataFrame:
         return df
     print(" -> Applying transformations...")
 
-    # أعمدة رقمية
     for col in ['#', 'delegate_commission', 'driver_commission', 'entry_number',
                 'trip_num', 'km_start', 'km_return', 'serial_number']:
         if col in df.columns:
@@ -432,83 +375,58 @@ def apply_power_query_transformations(df: pd.DataFrame) -> pd.DataFrame:
     if 'date' in df.columns:
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
-    # نصوص
     for col in ['customer_name', 'Guest_name', 'currency', 'delegate_name',
                 'driver_name', 'start_location', 'end_location', 'reference_id',
                 'station', 'receiver_name', 'payment_type', 'car_number']:
         if col in df.columns:
             df[col] = df[col].fillna('').astype(str).replace('nan', '')
 
-    # حذف أعمدة غير مطلوبة
     drop_cols = ['Guest_name', 'delegate_name', 'delegate_commission',
                  'driver_commission', 'trip_num', 'payment_type', 'serial_number']
     df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
-    # الكيلومترات — vectorised with np.where (no Python-level row loop)
-    s = pd.to_numeric(df['km_start'],  errors='coerce').fillna(0)
-    r = pd.to_numeric(df['km_return'], errors='coerce').fillna(0)
+    s = pd.to_numeric(df.get('km_start', 0),  errors='coerce').fillna(0)
+    r = pd.to_numeric(df.get('km_return', 0), errors='coerce').fillna(0)
     df['Total_KM'] = np.where((s > 0) & (r > s), (r - s).astype(int), 0)
 
-    # رقم السيارة - يحذف اصفار البداية
     def extract_plate(t: str) -> str:
         digits = re.sub(r'\D', '', str(t))
         return digits.lstrip('0') or 'No Plate'
 
-    df['Car_Num'] = df['car_number'].apply(extract_plate)
+    if 'car_number' in df.columns:
+        df['Car_Num'] = df['car_number'].apply(extract_plate)
 
-    # تنسيق التاريخ
     if 'date' in df.columns:
         df['date'] = df['date'].apply(
             lambda x: f"{x.month}/{x.day}/{x.year}" if pd.notna(x) else ''
         )
 
-    # ── استخدام المنظّف V5 ──────────────────────────────────────────────────
-    cleaner = AdvancedLocationCleanerV6()
+    cleaner = _location_cleaner_singleton
 
-    # start_location
-    if 'start_location' in df.columns:
-        start_map = {
-            'راديسون بلو':  'Radisson Blu',
-            'لوبساج':       'Le Passage',
-            'سفير  الدقي':  'Safir Dokki',
-            'فندق سفير':    'Safir',
-        }
-        df['start_location'] = df['start_location'].replace(start_map)
-
-    # end_location  ─────────────────────────────────────────────────────────
     if 'end_location' in df.columns:
         df['end_location_original'] = df['end_location']
-
-        # استخرج المواقع أولاً (المصدر الحقيقي للحقيقة)
         df['_detected_locs'] = df['end_location'].apply(cleaner.extract_all_locations)
-
-        # الموقع الرئيسي مشتق من المواقع المكتشفة
         df['End_Location_Clean'] = df['_detected_locs'].apply(
             lambda locs: locs[0] if locs else 'Undefined'
         )
 
-        # للصفوف التي لم يُكتشف فيها موقع → جرّب extract_main_location
         mask_undef = df['End_Location_Clean'] == 'Undefined'
         df.loc[mask_undef, 'End_Location_Clean'] = (
             df.loc[mask_undef, 'end_location'].apply(cleaner.extract_main_location)
         )
 
-        # Trip_Type مشتق من المواقع المكتشفة + النص الأصلي
         df['Trip_Type'] = df.apply(
             lambda row: cleaner.categorize_trip_type(
                 row['end_location'], row['_detected_locs']
             ),
             axis=1,
         )
-
         df['end_location'] = df['End_Location_Clean']
         df = df.drop(columns=['End_Location_Clean', '_detected_locs'])
 
-    # ── أعمدة المواقع المتعددة ──────────────────────────────────────────────
-    analytics = LocationAnalytics(df, cleaner=cleaner)  # reuse the same cleaner
+    analytics = LocationAnalytics(df, cleaner=cleaner)
     df        = analytics.generate_multi_location_columns(max_locations=5)
 
-    # ترتيب الأعمدة
     desired = [
         '#', 'customer_name', 'date', 'sale_price', 'currency',
         'driver_name', 'entry_number', 'start_location', 'end_location',
@@ -531,31 +449,19 @@ def structure_raw_data(all_raw_data: list) -> pd.DataFrame:
         rows.append({
             '#':                  item.get('serialId'),
             'customer_name':      item.get('customer_name'),
-            'Guest_name':         None,
             'date':               item.get('date'),
             'sale_price':         item.get('sale_price'),
             'currency':           item.get('currency_name'),
-            'delegate_name':      item.get('delegate_name'),
-            'delegate_commission':item.get('delegate_commission'),
             'driver_name':        item.get('driver_name'),
-            'driver_commission':  0,
             'entry_number':       entry.get('number'),
             'start_location':     item.get('start_location'),
             'end_location':       item.get('end_location'),
-            'trip_num':           item.get('trip_num'),
-            'reference_id':       item.get('reference_id'),
             'km_start':           item.get('km_start'),
             'km_return':          item.get('km_return'),
             'station':            station.get('name'),
-            'receiver_name':      item.get('receiver_name'),
-            'payment_type':       item.get('payment_type_name'),
-            'serial_number':      item.get('serial_number'),
-            'car_number':         item.get('platesNo'),
         })
     return pd.DataFrame(rows)
 
-
-# ================= Data Fetching with Checkpoints =================
 
 def fetch_year_data_with_checkpoints(year, date_from, date_to, year_label):
     print(f"\n{'='*70}")
@@ -566,11 +472,9 @@ def fetch_year_data_with_checkpoints(year, date_from, date_to, year_label):
     progress   = checkpoint.load_progress()
     resume_from, cached_data = 0, []
 
-    if (progress and progress.get('year') == year
-            and progress.get('status') == 'in_progress'):
+    if (progress and progress.get('year') == year and progress.get('status') == 'in_progress'):
         resume_from  = progress.get('current_page', 0)
         cached_data  = checkpoint.load_all_batches(year)
-        print(f"[!] Resuming from page {resume_from} — {len(cached_data):,} cached records")
 
     wait_for_internet()
 
@@ -580,63 +484,38 @@ def fetch_year_data_with_checkpoints(year, date_from, date_to, year_label):
     keep_fetching  = True
     batch_counter  = current_page // batch_size
 
-    while keep_fetching:
-        wait_for_internet(max_retries=10, retry_delay=30)
-        pages_batch = range(current_page, current_page + batch_size)
+    # Only fetch if a valid token is provided
+    if token:
+        while keep_fetching:
+            wait_for_internet()
+            pages_batch = range(current_page, current_page + batch_size)
 
-        with ThreadPoolExecutor(max_workers=batch_size) as ex:
-            results = [f.result() for f in
-                       [ex.submit(fetch_page, p, date_from, date_to) for p in pages_batch]]
+            with ThreadPoolExecutor(max_workers=batch_size) as ex:
+                results = [f.result() for f in [ex.submit(fetch_page, p, date_from, date_to) for p in pages_batch]]
 
-        batch_data, batch_has_data = [], False
-        for page_data in results:
-            if page_data:
-                all_raw_data.extend(page_data)
-                batch_data.extend(page_data)
-                batch_has_data = True
+            batch_data, batch_has_data = [], False
+            for page_data in results:
+                if page_data:
+                    all_raw_data.extend(page_data)
+                    batch_data.extend(page_data)
+                    batch_has_data = True
 
-        if batch_data:
-            checkpoint.save_batch(year, batch_counter, batch_data)
-            checkpoint.save_progress(year, current_page + batch_size, len(all_raw_data))
-            print(f" -> Pages {current_page}-{current_page+batch_size}: "
-                  f"{len(all_raw_data):,} total | checkpoint saved")
-            batch_counter += 1
+            if batch_data:
+                checkpoint.save_batch(year, batch_counter, batch_data)
+                checkpoint.save_progress(year, current_page + batch_size, len(all_raw_data))
+                batch_counter += 1
 
-        keep_fetching = batch_has_data and bool(results[-1])
-        if keep_fetching:
-            current_page += batch_size
-            time.sleep(0.2)
+            keep_fetching = batch_has_data and bool(results[-1])
+            if keep_fetching:
+                current_page += batch_size
+                time.sleep(0.2)
 
-    print(f" [OK] Finished — {len(all_raw_data):,} raw records")
     df = structure_raw_data(all_raw_data)
-    print(f" [OK] Confirmed: {len(df):,} records")
     df = apply_power_query_transformations(df)
 
     checkpoint.mark_complete(year)
     checkpoint.clear_year_checkpoints(year)
     return df
-
-
-def create_historical_archive() -> pd.DataFrame:
-    print("\n" + "=" * 70)
-    print(" CREATING HISTORICAL ARCHIVE (2024 + 2025)")
-    print("=" * 70)
-    wait_for_internet()
-    df_2024 = fetch_year_data_with_checkpoints(2024, "01-01-2024", "31-12-2024", "2024")
-    wait_for_internet()
-    df_2025 = fetch_year_data_with_checkpoints(2025, "01-01-2025", "31-12-2025", "2025")
-
-    print("\n Merging 2024 + 2025 ...")
-    df_archive = pd.concat([df_2024, df_2025], ignore_index=True)
-    df_archive = df_archive.drop_duplicates(subset=['#'], keep='last')
-    print(f"[OK] Archive: {len(df_2024):,} + {len(df_2025):,} = {len(df_archive):,}")
-
-    os.makedirs(os.path.dirname(HISTORICAL_ARCHIVE_PATH), exist_ok=True)
-    df_archive.to_csv(HISTORICAL_ARCHIVE_PATH, index=False, encoding='utf-8-sig')
-    with open(ARCHIVE_LOCK_FILE, 'w') as f:
-        f.write(f"Archive created: {datetime.now().isoformat()}\n"
-                f"Records: {len(df_archive):,}\n")
-    return df_archive
 
 
 def fetch_current_year_data() -> pd.DataFrame:
@@ -649,12 +528,9 @@ def fetch_current_year_data() -> pd.DataFrame:
     )
 
 
-# ================= Analytics Generation =================
-
 def generate_analytics_files(df: pd.DataFrame):
     print("\n" + "=" * 70)
     print(" GENERATING ANALYTICS FILES")
-    print("=" * 70)
     analytics = LocationAnalytics(df)
 
     for path, fn, label in [
@@ -665,98 +541,29 @@ def generate_analytics_files(df: pd.DataFrame):
         try:
             result = fn()
             if not result.empty:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
                 result.to_csv(path, index=False, encoding='utf-8-sig')
-                print(f" OK — {label}: {path}")
         except Exception as e:
-            print(f" FAILED — {label}: {e}")
-
-    print("=" * 70)
-
+            logger.error(f"Failed to generate {label}: {e}")
 
 # ================= MAIN =================
-
-# =============================================================================
-#  ROBUST MAIN LOOP 
-# =============================================================================
-
 if __name__ == "__main__":
     print("\n" + "="*80)
-    print(">> LIMOUSINE PIPELINE v5.0 - PRODUCTION MODE (SAFE)")
-    print("   Word-Boundary Cleaning | Auto-Retry | No Data Loss")
+    print(">> DATA PIPELINE v6.0 - SHOWCASE MODE")
     print("="*80)
     
-    wait_for_internet()
-    
-    # Historical Archive
-    archive_exists = os.path.exists(HISTORICAL_ARCHIVE_PATH) and os.path.exists(ARCHIVE_LOCK_FILE)
-    
-    if not archive_exists:
-        print("\n[!] Creating historical archive (ONE TIME)")
-        try:
-            df_history = create_historical_archive()
-            print("[OK] Archive created successfully!")
-        except Exception as e:
-            print(f"[!!!] Failed to create archive: {e}")
-            exit()
-    else:
-        print("\n[OK] Loading historical archive...")
-        df_history = pd.read_csv(HISTORICAL_ARCHIVE_PATH, dtype={'#': str})
-        print(f"    {len(df_history):,} records (2024-2025)")
-    
-    # === الحلقة اللانهائية (The Infinite Loop) ===
-    while True:
-        try:
-            wait_for_internet()
+    # In a real environment, this loop runs continuously
+    # For showcase purposes, we execute one pass.
+    try:
+        logger.info("Pipeline triggered...")
+        df_current = fetch_current_year_data()
+        
+        if not df_current.empty:
+            df_current['#'] = df_current['#'].astype(str)
+            df_current.to_csv(FINAL_OUTPUT_PATH, index=False, encoding='utf-8-sig')
+            generate_analytics_files(df_current)
+            logger.info("Pipeline execution complete. Output saved.")
+        else:
+            logger.warning("No data retrieved. Make sure API token is valid.")
             
-            logger.info("=" * 60)
-            logger.info(">> Job Started: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            logger.info("=" * 60)
-            
-            # محاولة سحب الداتا (لو فشلت هنا، هتروح للـ except ومش هتحفظ داتا ناقصة)
-            df_current = fetch_current_year_data()
-            
-            if not df_current.empty:
-                df_current['#'] = df_current['#'].astype(str)
-                
-                print(f"\n Current Year Summary:")
-                print(f"   Records:            {len(df_current):,}")
-                print(f"   Multi-Location:     {(df_current['num_locations'] >= 2).sum():,}")
-                print(f"   Round Trips:        {(df_current['Trip_Type'] == 'Round Trip').sum():,}")
-                print(f"   Airport Transfers:  {(df_current['Trip_Type'] == 'Airport Transfer').sum():,}")
-                
-                print("\n Merging...")
-                df_master = pd.concat([df_history, df_current], ignore_index=True)
-                df_master = df_master.drop_duplicates(subset=['#'], keep='last')
-                print(f" [OK] Master: {len(df_master):,} unique records")
-                
-                # Save & Analyze
-                os.makedirs(os.path.dirname(FINAL_OUTPUT_PATH), exist_ok=True)
-                df_master.to_csv(FINAL_OUTPUT_PATH, index=False, encoding='utf-8-sig')
-                print(f"\n[OK] Main File: {FINAL_OUTPUT_PATH}")
-                
-                generate_analytics_files(df_master)
-                
-                # Stats Summary
-                print(f"\n{'='*70}")
-                print(f" Total Revenue: {df_master['sale_price'].sum():,.2f}")
-                print(f"{'='*70}")
-                
-                # Success -> Sleep 6 Hours
-                next_run = datetime.now() + pd.Timedelta(hours=6)
-                logger.info("Success! Sleeping 6 hours. Next run: %s", next_run.strftime("%H:%M"))
-                time.sleep(21600)
-                
-            else:
-                print("[!] No data found / Empty response. Retry in 5 min...")
-                time.sleep(300)
-
-        except KeyboardInterrupt:
-            logger.info("Pipeline stopped by user (KeyboardInterrupt).")
-            break
-            
-        except Exception as e:
-            # ممتص الصدمات: لو حصل Error في السحب أو النت، السكريبت مش بيموت
-            # لكنه برضه مش بيسجل إن الشغل خلص، فبيعيد المحاولة بعدين
-            logger.error("CRITICAL ERROR: %s -- retrying in 5 min", e, exc_info=True)
-            time.sleep(300)
+    except Exception as e:
+        logger.error("Execution failed", exc_info=True)
