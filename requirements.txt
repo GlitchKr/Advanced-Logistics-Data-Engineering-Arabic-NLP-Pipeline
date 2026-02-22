@@ -1,0 +1,19 @@
+# ── Core data pipeline ─────────────────────────────────────────────────────────
+requests>=2.31.0
+pandas>=2.0.0
+numpy>=1.26.0
+urllib3>=2.0.0
+
+# ── Environment / config ───────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Checkpointing ──────────────────────────────────────────────────────────────
+# (pickle, json, pathlib are built-in — no install needed)
+
+# ── Location cleaning — fuzzy matching ────────────────────────────────────────
+rapidfuzz>=3.6.0
+
+# ── FastAPI microservice ───────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
